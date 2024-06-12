@@ -8,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using ProtoFlux.Runtimes.Execution;
 using ProtoFlux.Core;
-using System.Reflection;
 
 namespace InfiniteLoopKiller
 {

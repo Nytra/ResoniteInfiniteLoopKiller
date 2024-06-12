@@ -1,22 +1,22 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net462</TargetFramework>
-    <AssemblyTitle>MonkeyLoader.ModTemplate</AssemblyTitle>
+    <AssemblyTitle>InfiniteLoopKiller</AssemblyTitle>
     <AssemblyFileName>$(AssemblyTitle).dll</AssemblyFileName>
-    <RootNamespace>MonkeyLoader.ModTemplate</RootNamespace>
+    <RootNamespace>InfiniteLoopKiller</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <PackageId>MonkeyLoader.ModTemplate</PackageId>
-    <Title>MonkeyLoader Resonite Mod Template</Title>
-    <Authors>Banane9</Authors>
-    <Version>0.1.0-beta</Version>
-    <Description>This is a template for a MonkeyLoader mod.</Description>
+    <PackageId>InfiniteLoopKiller</PackageId>
+    <Title>InfiniteLoopKiller</Title>
+    <Authors>Nytra</Authors>
+    <Version>0.0.1</Version>
+    <Description>This is a mod to kill infinitely running ProtoFlux.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>LGPL-3.0-or-later</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/ResoniteModdingGroup/ModTemplate</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/ResoniteModdingGroup/ModTemplate.git</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Nytra/ResoniteInfiniteLoopKiller</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Nytra/ResoniteInfiniteLoopKiller.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>mod; mods; monkeyloader; resonite</PackageTags>
     <IncludeSymbols>False</IncludeSymbols>
@@ -65,9 +65,5 @@
     <Reference Include="ProtoFlux.Core">
       <HintPath>G:\SteamLibrary\steamapps\common\Resonite\Resonite_Data\Managed\ProtoFlux.Core.dll</HintPath>
     </Reference>
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\MonkeyLoader.ModTemplate.PrePatcher\MonkeyLoader.ModTemplate.PrePatcher.csproj" PrivateAssets="All" />
   </ItemGroup>
 </Project>
