@@ -22,7 +22,7 @@
     <IncludeSymbols>False</IncludeSymbols>
     <EmbedAllSources>True</EmbedAllSources>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddExtraFilesToPackage</TargetsForTfmSpecificContentInPackage>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
   <Target Name="AddExtraFilesToPackage">
@@ -61,6 +61,9 @@
     <!-- Reference the pre-patcher assembly from the Game Pack because PackageReference is stupid -->
     <Reference Include="MonkeyLoader.Resonite.Data">
       <HintPath>$(PkgMonkeyLoader_GamePacks_Resonite)\lib\net462\pre-patchers\MonkeyLoader.Resonite.Data.dll</HintPath>
+    </Reference>
+    <Reference Include="ProtoFlux.Core">
+      <HintPath>G:\SteamLibrary\steamapps\common\Resonite\Resonite_Data\Managed\ProtoFlux.Core.dll</HintPath>
     </Reference>
   </ItemGroup>
 
