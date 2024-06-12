@@ -8,7 +8,6 @@ using System;
 using System.Collections.Generic;
 using ProtoFlux.Runtimes.Execution;
 using ProtoFlux.Core;
-using System.Linq;
 
 namespace InfiniteLoopKiller
 {
@@ -63,6 +62,12 @@ namespace InfiniteLoopKiller
                 Logger.Debug(() => $"Group: {frooxEngineContext.Group?.Name ?? "NULL"}");
                 Logger.Debug(() => $"LocalUpdateIndex: {frooxEngineContext.Time.LocalUpdateIndex}");
                 Logger.Debug(() => $"AbortExecution: {frooxEngineContext.AbortExecution}");
+
+                if (frooxEngineContext.AbortExecution)
+                {
+                    throw new StackOverflowException($"This execution context has been aborted!");
+                }
+
                 if (!_contextExecutionData.ContainsKey(frooxEngineContext))
                 {
                     var executionData = new ExecutionData();
@@ -70,6 +75,7 @@ namespace InfiniteLoopKiller
                     executionData.Group = frooxEngineContext.Group;
                     _contextExecutionData.Add(frooxEngineContext, executionData);
                     Logger.Debug(() => $"Added new context execution data.");
+                    Logger.Debug(() => $"New size: {_contextExecutionData.Count}");
                 }
                 else
                 {
@@ -83,6 +89,7 @@ namespace InfiniteLoopKiller
                             Logger.Debug(() => $"NumExecutions: {executionData.NumExecutions}");
                             if (executionData.NumExecutions > ConfigSection.MaxExecutions)
                             {
+                                frooxEngineContext.AbortExecution = true;
                                 throw new StackOverflowException($"Maximum number of per-update executions ({ConfigSection.MaxExecutions}) for this execution context has been reached!");
                             }
                         }
@@ -93,6 +100,7 @@ namespace InfiniteLoopKiller
                         }
                     }
                 }
+
                 if (ConfigSection.DisregardContext)
                 {
                     foreach (var kVP in _contextExecutionData)
@@ -103,6 +111,15 @@ namespace InfiniteLoopKiller
                             && kVP.Value.Group == frooxEngineContext.Group)
                         {
                             frooxEngineContext.AbortExecution = true;
+
+                            foreach (var activeContext in frooxEngineContext.Controller._activeContexts)
+                            {
+                                if (activeContext.Group == frooxEngineContext.Group)
+                                {
+                                    activeContext.AbortExecution = true;
+                                }
+                            }
+
                             throw new StackOverflowException($"A previous execution context aborted this node group!");
                         }
                     }
