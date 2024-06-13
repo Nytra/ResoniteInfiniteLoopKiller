@@ -2,7 +2,6 @@
   "localeCode": "en",
   "authors": [ "Nytra" ],
   "messages": {
-    "ModTemplate.KeyA": "Localization key A",
-    "ModTemplate.KeyB": "Another localization"
+    "InfiniteLoopKiller.Description": "This is a mod to kill infinitely running ProtoFlux."
   }
 }

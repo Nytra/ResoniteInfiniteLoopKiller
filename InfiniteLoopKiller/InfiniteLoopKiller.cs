@@ -8,14 +8,17 @@ using System;
 using System.Collections.Generic;
 using ProtoFlux.Runtimes.Execution;
 using ProtoFlux.Core;
+using System.Reflection;
+using Elements.Core;
+using System.Reflection.Emit;
 
 namespace InfiniteLoopKiller
 {
     internal class InfiniteLoopKillerConfig : ConfigSection
     {
-        private readonly DefiningConfigKey<int> _maxExecutionsKey = new("MaxExecutions", "Maximum number of executions per update.", () => 10000, valueValidator: value => value >= 5000);
+        private readonly DefiningConfigKey<int> _maxExecutionsKey = new("MaxExecutions", "Maximum number of executions per update.", () => 10000, valueValidator: value => value >= 10000);
         private readonly DefiningConfigKey<bool> _disregardContextKey = new("DisregardContext", "Whether or not to abort infinitely executing protoflux regardless of execution context.", () => true);
-        private readonly DefiningConfigKey<bool> _useLoggingKey = new("UseLogging", "Whether or not to print debug messages to the log.", () => false);
+        private readonly DefiningConfigKey<bool> _useLoggingKey = new("ExtraDebugLogging", "Whether or not to print additional debug messages to the log.", () => false);
 
         public override string Description => "Contains the config for InfiniteLoopKiller.";
 
@@ -46,14 +49,11 @@ namespace InfiniteLoopKiller
     {
         public int LocalUpdateIndex;
         public int NumExecutions = 0;
-        public ProtoFluxNodeGroup? Group;
     }
-    
+
     internal class InfiniteLoopKiller : ConfiguredResoniteMonkey<InfiniteLoopKiller, InfiniteLoopKillerConfig>
     {
         static readonly Dictionary<FrooxEngineContext, ExecutionData> _contextExecutionData = new();
-
-        //static readonly PropertyInfo _currentDepthProperty = AccessTools.Property(typeof(ExecutionContext), "CurrentDepth");
 
         // The options for these should be provided by your game's game pack.
         protected override IEnumerable<IFeaturePatch> GetFeaturePatches()
@@ -63,11 +63,54 @@ namespace InfiniteLoopKiller
 
         public override bool CanBeDisabled => true;
 
-        static void Log(Func<object> messageProducer)
+        static void ExtraDebug(string message)
         {
             if (ConfigSection.UseLogging)
             {
-                Logger.Debug(messageProducer);
+                Logger.Debug(() => message);
+            }
+        }
+
+        protected override bool OnEngineReady()
+        {
+            Type t = AccessTools.TypeByName("FrooxEngine.ProtoFlux.ProtoFluxNodeGroup+<>c__DisplayClass107_0");
+            if (t != null)
+            {
+                Logger.Debug(() => "Got stupid type");
+                MethodInfo m = AccessTools.Method(t, "<StartAsyncTask>b__0");
+                if (m != null)
+                {
+                    Logger.Debug(() => "Got stupid method");
+                    Harmony.Patch(AccessTools.AsyncMoveNext(m), transpiler: new HarmonyMethod(typeof(RemoveLogMethodPatch), "Transpiler"));
+                }
+            }
+            return base.OnEngineReady();
+        }
+
+        class RemoveLogMethodPatch
+        {
+            static readonly MethodInfo _errorLogMethod = AccessTools.Method(typeof(UniLog), "Error");
+            public static void FakeLog(string message, bool stackTrace)
+            {
+                if (!message.StartsWith("Exception when running async node task:\nProtoFlux.Runtimes.Execution.ExecutionAbortedException"))
+                {
+                    UniLog.Error(message, stackTrace);
+                }
+            }
+            public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> codes)
+            {
+                var patching = typeof(RemoveLogMethodPatch).GetMethod(nameof(FakeLog));
+                foreach (var code in codes)
+                {
+                    if (code.Calls(_errorLogMethod))
+                    {
+                        yield return new(OpCodes.Call, patching);
+                    }
+                    else
+                    {
+                        yield return code;
+                    }
+                }
             }
         }
 
@@ -77,33 +120,27 @@ namespace InfiniteLoopKiller
 
             if (context is FrooxEngineContext frooxEngineContext)
             {
-                Log(() => "FrooxEngineContext");
-                Log(() => $"Context HashCode: {context.GetHashCode()}");
-                Log(() => $"World: {frooxEngineContext.World.Name}");
-                Log(() => $"Group: {frooxEngineContext.Group?.Name ?? "NULL"}");
-                Log(() => $"LocalUpdateIndex: {frooxEngineContext.Time.LocalUpdateIndex}");
-                Log(() => $"AbortExecution: {frooxEngineContext.AbortExecution}");
-
-                if (frooxEngineContext.AbortExecution)
-                {
-                    //throw new StackOverflowException($"This execution context has been aborted!");
-                }
+                ExtraDebug("FrooxEngineContext");
+                ExtraDebug($"Context HashCode: {context.GetHashCode()}");
+                ExtraDebug($"World: {frooxEngineContext.World.Name}");
+                ExtraDebug($"Group: {frooxEngineContext.Group?.Name ?? "NULL"}");
+                ExtraDebug($"LocalUpdateIndex: {frooxEngineContext.Time.LocalUpdateIndex}");
+                ExtraDebug($"AbortExecution: {frooxEngineContext.AbortExecution}");
 
                 ExecutionData? executionData;
                 if (!_contextExecutionData.ContainsKey(frooxEngineContext))
                 {
                     executionData = new ExecutionData();
                     executionData.LocalUpdateIndex = frooxEngineContext.Time.LocalUpdateIndex;
-                    executionData.Group = frooxEngineContext.Group;
                     _contextExecutionData.Add(frooxEngineContext, executionData);
-                    Log(() => $"Added new context execution data.");
-                    Log(() => $"New size: {_contextExecutionData.Count}");
+                    ExtraDebug($"Added new context execution data.");
+                    ExtraDebug($"New size: {_contextExecutionData.Count}");
                 }
                 else
                 {
                     if (_contextExecutionData.TryGetValue(frooxEngineContext, out executionData))
                     {
-                        Log(() => $"Got existing context execution data.");
+                        ExtraDebug($"Got existing context execution data.");
                     }
                 }
                 if (executionData != null)
@@ -111,75 +148,34 @@ namespace InfiniteLoopKiller
                     if (executionData.LocalUpdateIndex == frooxEngineContext.Time.LocalUpdateIndex)
                     {
                         executionData.NumExecutions++;
-                        //_currentDepthProperty.SetValue(frooxEngineContext, frooxEngineContext.CurrentDepth + 1);
-                        Log(() => $"NumExecutions: {executionData.NumExecutions}");
+                        ExtraDebug($"NumExecutions: {executionData.NumExecutions}");
                         if (executionData.NumExecutions > ConfigSection.MaxExecutions)
                         {
+                            Logger.Info(() => $"Aborting an execution context for ProtoFluxNodeGroup: {frooxEngineContext.Group?.Name ?? "NULL"}");
                             frooxEngineContext.AbortExecution = true;
                             _contextExecutionData.Remove(frooxEngineContext);
                             if (ConfigSection.DisregardContext)
                             {
+                                Logger.Info(() => $"Disregarding context and aborting execution for entire ProtoFluxNodeGroup: {frooxEngineContext.Group?.Name ?? "NULL"}");
                                 foreach (var activeContext in frooxEngineContext.Controller._activeContexts)
                                 {
-                                    if (activeContext.Group == frooxEngineContext.Group)
+                                    if (activeContext.Group != null && activeContext.Group == frooxEngineContext.Group)
                                     {
                                         activeContext.AbortExecution = true;
                                         _contextExecutionData.Remove(activeContext);
                                     }
                                 }
                             }
-                            //throw new StackOverflowException($"Maximum number of per-update executions ({ConfigSection.MaxExecutions}) for this execution context has been reached!");
                         }
                     }
                     else
                     {
                         _contextExecutionData.Remove(frooxEngineContext);
-                        Log(() => $"Removed stale context execution data.");
+                        ExtraDebug($"Removed stale context execution data.");
                     }
                 }
             }
         }
-
-        // This doesn't seem to work very well
-        //[HarmonyPatch(typeof(ProtoFluxController), "ReturnContext")]
-        //[HarmonyPatchCategory(nameof(InfiniteLoopKiller))]
-        //class PatchReturnContext
-        //{
-        //    private static void Prefix(ref FrooxEngineContext context)
-        //    {
-        //        if (_contextExecutionData.ContainsKey(context))
-        //        {
-        //            string groupName = context.Group.Name;
-        //            Logger.Info(() => $"Removing context for group: {groupName}");
-        //            _contextExecutionData.Remove(context);
-        //        }
-        //    }
-        //}
-
-        // This doesn't work well either
-        //[HarmonyPatch(typeof(ProtoFluxController), "BorrowContext")]
-        //[HarmonyPatchCategory(nameof(InfiniteLoopKiller))]
-        //class PatchBorrowContext
-        //{
-        //    private static void Postfix(FrooxEngineContext __result)
-        //    {
-        //        if (ConfigSection.DisregardContext)
-        //        {
-        //            foreach (var kVP in _contextExecutionData)
-        //            {
-        //                //if (kVP.Key == __result) continue;
-        //                if (kVP.Value.LocalUpdateIndex == __result.Time.LocalUpdateIndex
-        //                    && kVP.Value.NumExecutions > ConfigSection.MaxExecutions
-        //                    && kVP.Value.Group == __result.Group)
-        //                {
-        //                    __result.AbortExecution = true;
-
-        //                    throw new StackOverflowException($"A previous execution context aborted this node group!");
-        //                }
-        //            }
-        //        }
-        //    }
-        //}
 
         [HarmonyPatch(typeof(ExecutionContextExtensions), "Execute", new Type[] { typeof(IImpulse), typeof(ProtoFlux.Runtimes.Execution.ExecutionContext) })]
         [HarmonyPatchCategory(nameof(InfiniteLoopKiller))]
