@@ -16,9 +16,9 @@ namespace InfiniteLoopKiller
 {
     internal class InfiniteLoopKillerConfig : ConfigSection
     {
-        private readonly DefiningConfigKey<int> _maxExecutionsKey = new("MaxExecutions", "Maximum number of executions per update.", () => 10000, valueValidator: value => value >= 10000);
-        private readonly DefiningConfigKey<bool> _disregardContextKey = new("DisregardContext", "Whether or not to abort infinitely executing protoflux regardless of execution context.", () => true);
-        private readonly DefiningConfigKey<bool> _useLoggingKey = new("ExtraDebugLogging", "Whether or not to print additional debug messages to the log.", () => false);
+        private readonly DefiningConfigKey<int> _maxExecutionsKey = new("Max Executions", "Maximum number of executions per update.", () => 25000, valueValidator: value => value >= 25000);
+        private readonly DefiningConfigKey<bool> _disregardContextKey = new("Abort All Active Contexts", "Whether or not to abort all active execution contexts for the node group (Required to stop async task loops)", () => true);
+        private readonly DefiningConfigKey<bool> _useLoggingKey = new("Extra Debug Logging", "Whether or not to print additional debug messages to the log.", () => false);
 
         public override string Description => "Contains the config for InfiniteLoopKiller.";
 
@@ -58,7 +58,7 @@ namespace InfiniteLoopKiller
         // The options for these should be provided by your game's game pack.
         protected override IEnumerable<IFeaturePatch> GetFeaturePatches()
         {
-            yield return new FeaturePatch<FrooxEngineProtoflux>(PatchCompatibility.Postfix);
+            yield return new FeaturePatch<FrooxEngineProtoflux>(PatchCompatibility.Modification);
         }
 
         public override bool CanBeDisabled => true;
@@ -92,7 +92,7 @@ namespace InfiniteLoopKiller
             static readonly MethodInfo _errorLogMethod = AccessTools.Method(typeof(UniLog), "Error");
             public static void FakeLog(string message, bool stackTrace)
             {
-                if (!message.StartsWith("Exception when running async node task:\nProtoFlux.Runtimes.Execution.ExecutionAbortedException"))
+                if (!Enabled || !message.StartsWith("Exception when running async node task:\nProtoFlux.Runtimes.Execution.ExecutionAbortedException"))
                 {
                     UniLog.Error(message, stackTrace);
                 }
@@ -120,12 +120,17 @@ namespace InfiniteLoopKiller
 
             if (context is FrooxEngineContext frooxEngineContext)
             {
-                ExtraDebug("FrooxEngineContext");
-                ExtraDebug($"Context HashCode: {context.GetHashCode()}");
-                ExtraDebug($"World: {frooxEngineContext.World.Name}");
-                ExtraDebug($"Group: {frooxEngineContext.Group?.Name ?? "NULL"}");
-                ExtraDebug($"LocalUpdateIndex: {frooxEngineContext.Time.LocalUpdateIndex}");
-                ExtraDebug($"AbortExecution: {frooxEngineContext.AbortExecution}");
+                string s = "";
+                s += $"\nContext HashCode: {context.GetHashCode()}";
+                s += $"\nGroup: {frooxEngineContext.Group?.Name ?? "NULL"}";
+                s += $"\nLocalUpdateIndex: {frooxEngineContext.Time.LocalUpdateIndex}";
+                
+                if (frooxEngineContext.AbortExecution)
+                {
+                    s += $"\nContext will abort execution.";
+                    ExtraDebug(s);
+                    return;
+                }
 
                 ExecutionData? executionData;
                 if (!_contextExecutionData.ContainsKey(frooxEngineContext))
@@ -133,14 +138,18 @@ namespace InfiniteLoopKiller
                     executionData = new ExecutionData();
                     executionData.LocalUpdateIndex = frooxEngineContext.Time.LocalUpdateIndex;
                     _contextExecutionData.Add(frooxEngineContext, executionData);
-                    ExtraDebug($"Added new context execution data.");
-                    ExtraDebug($"New size: {_contextExecutionData.Count}");
+                    s += $"\nAdded new context execution data. New size: {_contextExecutionData.Count}";
+                    frooxEngineContext.World.RunSynchronously(() => 
+                    {
+                        _contextExecutionData.Remove(frooxEngineContext);
+                        //ExtraDebug($"Removed context execution data ({frooxEngineContext.GetHashCode()}). New size: {_contextExecutionData.Count}");
+                    });
                 }
                 else
                 {
                     if (_contextExecutionData.TryGetValue(frooxEngineContext, out executionData))
                     {
-                        ExtraDebug($"Got existing context execution data.");
+                        s += $"\nGot existing context execution data.";
                     }
                 }
                 if (executionData != null)
@@ -148,30 +157,42 @@ namespace InfiniteLoopKiller
                     if (executionData.LocalUpdateIndex == frooxEngineContext.Time.LocalUpdateIndex)
                     {
                         executionData.NumExecutions++;
-                        ExtraDebug($"NumExecutions: {executionData.NumExecutions}");
+                        s += $"\nNumExecutions: {executionData.NumExecutions}";
+                        ExtraDebug(s);
                         if (executionData.NumExecutions > ConfigSection.MaxExecutions)
                         {
-                            Logger.Info(() => $"Aborting an execution context for ProtoFluxNodeGroup: {frooxEngineContext.Group?.Name ?? "NULL"}");
-                            frooxEngineContext.AbortExecution = true;
-                            _contextExecutionData.Remove(frooxEngineContext);
                             if (ConfigSection.DisregardContext)
                             {
-                                Logger.Info(() => $"Disregarding context and aborting execution for entire ProtoFluxNodeGroup: {frooxEngineContext.Group?.Name ?? "NULL"}");
-                                foreach (var activeContext in frooxEngineContext.Controller._activeContexts)
+                                if (frooxEngineContext.Group != null)
                                 {
-                                    if (activeContext.Group != null && activeContext.Group == frooxEngineContext.Group)
+                                    ProtoFluxNodeGroup group = frooxEngineContext.Group;
+                                    Logger.Info(() => $"Aborting all active execution contexts for ProtoFluxNodeGroup: {group.Name}");
+                                    int count = 0;
+                                    foreach (var activeContext in frooxEngineContext.Controller._activeContexts)
                                     {
-                                        activeContext.AbortExecution = true;
-                                        _contextExecutionData.Remove(activeContext);
+                                        if (!activeContext.AbortExecution && activeContext.Group != null && activeContext.Group == group)
+                                        {
+                                            activeContext.AbortExecution = true;
+                                            _contextExecutionData.Remove(activeContext);
+                                            count++;
+                                        }
                                     }
+                                    Logger.Info(() => $"Aborted {count} execution contexts.");
                                 }
+                            }
+                            else
+                            {
+                                Logger.Info(() => $"Aborting an execution context ({frooxEngineContext.GetHashCode()}) for ProtoFluxNodeGroup: {frooxEngineContext.Group?.Name ?? "NULL"}");
+                                frooxEngineContext.AbortExecution = true;
+                                _contextExecutionData.Remove(frooxEngineContext);
                             }
                         }
                     }
                     else
                     {
                         _contextExecutionData.Remove(frooxEngineContext);
-                        ExtraDebug($"Removed stale context execution data.");
+                        s += $"\nRemoved stale context execution data.";
+                        ExtraDebug(s);
                     }
                 }
             }
