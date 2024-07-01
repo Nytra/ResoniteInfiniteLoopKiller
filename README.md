@@ -1,4 +1,4 @@
-Mod Template for MonkeyLoader
+InfiniteLoopKiller
 =============================
 
-A mod template, that shows the basic project setup for [MonkeyLoader](https://github.com/MonkeyModdingTroop/MonkeyLoader) mods.
+A [MonkeyLoader](https://github.com/MonkeyModdingTroop/MonkeyLoader) mod to abort ProtoFlux that executes too many times in a single update.
